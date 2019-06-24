@@ -1,23 +1,21 @@
-// [START import]
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
-admin.initializeApp()
 const spawn = require('child-process-promise').spawn;
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-// [END import]
 
-// [START generateThumbnail]
-/**
- * When an image is uploaded in the Storage bucket We generate a thumbnail automatically using
- * ImageMagick.
- */
-// [START generateThumbnailTrigger]
+var serviceAccount = require('./serviceAccountKey.json');
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: "https://learnfirebase-f5370.firebaseio.com"
+});
+
 exports.onFinalize = functions.storage.object().onFinalize(async (object) => {
 
   const fileBucket = object.bucket; // The Storage bucket that contains the file.
-  const filePath = object.name; // File path in the bucket.
+  const bucketFilePath = object.name; // File path in the bucket.
   const contentType = object.contentType; // File content type.
   const metadata = object.metadata;
 
@@ -25,26 +23,38 @@ exports.onFinalize = functions.storage.object().onFinalize(async (object) => {
     return console.log('This is not an image.');
   }
 
-  const fileName = path.basename(filePath);
+  const fileName = path.basename(bucketFilePath);
 
-  if(!metadata) {
+  if(!metadata || fileName.startsWith('thumb_')) {
     return console.log('Image is already processed');
   }
 
   const bucket = admin.storage().bucket(fileBucket);
-  const tempFilePath = path.join(os.tmpdir(), fileName);
-  console.log('tempFilePath',tempFilePath);
+  const localFilePath = path.join(os.tmpdir(), fileName);
+  const localThumbPath = path.join(os.tmpdir(), `thumb_${fileName}`);
 
-  await bucket.file(filePath).download({destination: tempFilePath});
+  await bucket.file(bucketFilePath).download({destination: localFilePath});
   
-  await spawn('convert', [tempFilePath, '-auto-orient', '-gravity', 'center', '-pointsize', '130', '-fill', 'rgba(140, 114, 127, 0.2)', '-draw', 'text 0,0 "jojo_studio"', tempFilePath]);
+  await spawn('convert', [localFilePath, '-thumbnail', '400x400>', localThumbPath]);
+  await spawn('convert', [localFilePath, '-auto-orient', '-gravity', 'center', '-pointsize', '130', '-fill', 'rgba(140, 114, 127, 0.2)', '-draw', 'text 0,0 "jojo_studio"', localFilePath]);
   
-  const thumbFileName = `${fileName}`;
-  const thumbFilePath = path.join(path.dirname(filePath), thumbFileName);
-  console.log('thumb file path', thumbFilePath);
-  await bucket.upload(tempFilePath, {
-    destination: thumbFilePath,
+  const thumbFilePath = path.join(path.dirname(bucketFilePath), `thumb_${fileName}`);
+
+  const [file] = await bucket.upload(localFilePath, { destination: bucketFilePath });
+  const [url] = await file.getSignedUrl({
+    action: 'read',
+    expires: '03-09-2491'
   });
+
+  const [thumbFile] = await bucket.upload(localThumbPath, { destination: thumbFilePath });
+  const [thumb_url] = await thumbFile.getSignedUrl({
+    action: 'read',
+    expires: '03-09-2491'
+  });
+
+  const [key] = bucketFilePath.split('.');
+  await admin.database().ref(key).set({ file_name: fileName, url, thumb_url, selected: false })
   
-  return fs.unlinkSync(tempFilePath);
+  fs.unlinkSync(localThumbPath);
+  return fs.unlinkSync(localFilePath);
 });
