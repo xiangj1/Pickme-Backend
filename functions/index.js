@@ -36,7 +36,7 @@ exports.onFinalize = functions.storage.object().onFinalize(async (object) => {
   await bucket.file(bucketFilePath).download({destination: localFilePath});
   
   await spawn('convert', [localFilePath, '-thumbnail', '400x400>', localThumbPath]);
-  await spawn('convert', [localFilePath, '-auto-orient', '-gravity', 'center', '-pointsize', '130', '-fill', 'rgba(240, 237, 234, 0.47)', '-draw', 'text 0,0 "jojo_studio"', localFilePath]);
+  await spawn('convert', [localFilePath, '-auto-orient', '-gravity', 'center', '-pointsize', '130', '-fill', 'rgba(240, 237, 234, 0.3)', '-draw', 'text 0,-300 "jojo_studio"', localFilePath]);
   
   const thumbFilePath = path.join(path.dirname(bucketFilePath), `thumb_${fileName}`);
 
